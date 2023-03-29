@@ -55,8 +55,8 @@ void setup() {
     tft.initR(INITR_BLACKTAB);                                                      //  // Sets the background colour
     tft.setSPISpeed(40000000);                                                      //  // Sets the SPI speed (40 million)
     
-    tft.fillScreen(SCREEN_COLOUR);                                                   //  // Fills the screen black
-    tft.setTextColor(ST7735_WHITE, SCREEN_COLOUR);                                   //  // Makes the text white with black background
+    tft.fillScreen(SCREEN_COLOUR);                                                  //  // Fills the screen black
+    tft.setTextColor(ST7735_WHITE, SCREEN_COLOUR);                                  //  // Makes the text white with black background
 }
 
 // MAIN LOOP
