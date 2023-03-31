@@ -99,7 +99,6 @@ void loop() {
     cleanMultipleCircles();
     tft.fillRect(20,0, 20,30, SCREEN_COLOUR);                                       //  // This clears the text left by the debug
 
-
     // INITIALISATION
     //  // Potentiometer Value Acquiring
     int potentiometerValue  = analogRead(POTENTIOMETER_PIN) / 100;                  //  // Gets value of potentiometer, makes 0 to 10
@@ -121,7 +120,6 @@ void loop() {
     //  // Step Calculations
     int nextStepX           =   joystickValueX * circleMovementStep;                //  // Next step for X
     int nextStepY           = - joystickValueY * circleMovementStep;                //  // Next step for Y
-
 
     // PLACEMENT LOGIC
     //  // Initiation
@@ -158,9 +156,11 @@ void loop() {
     tft.println(potentiometerValue);
 
     // BUTTON INPUTS
+    //  // Read Values
     buttonColour    = digitalRead(BUTTON_PIN_COLOUR);                               //  // Read the input of the button used for colour
     buttonFill      = digitalRead(BUTTON_PIN_FILL);                                 //  // Read the input of the button used for fill
 
+    //  // Colour Changing Button
     if (buttonColour == true){                                                      //  // If button pressed
         // FUNCTION
         changeColour();                                                             //  // Change colour
@@ -172,7 +172,7 @@ void loop() {
         buttonColourState = false;                                                  //  // Allow button to activate function again
     }
 
-
+    //  // Fill Circle Button
     if (buttonFill == true){                                                        //  // If button pressed
         // FUNCTIONS
         if (circleFill == false) {circleFill = true;}                               //  // Alternate from filled to not or vice versa
