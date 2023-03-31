@@ -158,8 +158,8 @@ void loop() {
     tft.println(potentiometerValue);
 
     // BUTTON INPUTS
-    buttonColour    = digitalRead(BUTTON_PIN_COLOUR);                                   //  // Read the input of the button used for colour
-    buttonFill      = digitalRead(BUTTON_PIN_FILL);                                     //  // Read the input of the button used for fill
+    buttonColour    = digitalRead(BUTTON_PIN_COLOUR);                               //  // Read the input of the button used for colour
+    buttonFill      = digitalRead(BUTTON_PIN_FILL);                                 //  // Read the input of the button used for fill
 
     if (buttonColour == true){                                                      //  // If button pressed
         // FUNCTION
@@ -202,7 +202,7 @@ void cleanCircle(int locX, int locY) {                                          
     tft.fillCircle(locX, locY, circleRadius+1, SCREEN_COLOUR);
 }
 
-void produceMultipleCircles() {
+void produceMultipleCircles() {                                                     // Handles the multiple circles
     // CONDITIONS
     //  // Left Condition
     if ((circleScreenLocX - circleRadius) <= 0) {
@@ -256,7 +256,7 @@ void produceMultipleCircles() {
     produceCircle(circleScreenLocX, circleScreenLocY);
 }
 
-void cleanMultipleCircles() {
+void cleanMultipleCircles() {                                                       // Handles the multiple circles
     // CONDITIONS
     //  // Left Condition
     if ((circleScreenLocX - circleRadius) <= 0) {
@@ -310,21 +310,30 @@ void cleanMultipleCircles() {
     cleanCircle(circleScreenLocX, circleScreenLocY);
 }
 
-void changeColour() {
+void changeColour() {                                                               // Changes the colour through a iterative conditional list
     if (buttonColourState == false) {
         // CONDITIONS
+        //  // Cyan to Magenta
         if (circleColour == ST7735_CYAN) {
             circleColour = ST7735_MAGENTA;
         }
+
+        //  // Magenta to Yellow
         else if (circleColour == ST7735_MAGENTA) {
             circleColour = ST7735_YELLOW;
         }
+
+        //  // Yellow to Green
         else if (circleColour == ST7735_YELLOW) {
             circleColour = ST7735_GREEN;
         }
+
+        //  // Green to White
         else if (circleColour == ST7735_GREEN) {
             circleColour = ST7735_WHITE;
         }
+
+        //  // White to Cyan
         else {
             circleColour = ST7735_CYAN;
         }
