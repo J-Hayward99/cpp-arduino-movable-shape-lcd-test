@@ -5,6 +5,7 @@
 // INCLUDES
 #include <Adafruit_GFX.h>                                                           // Used to perform drawings
 #include <Adafruit_ST7735.h>                                                        // Hardware specific header, ST7735 is the chipset used
+#include <stdbool.h>                                                                // Adds boolean terms
 
 
 // DEFINITIONS
@@ -22,17 +23,21 @@
 #define LCD_PXL_WIDTH       128                                                     // Width of the display in pixels
 
 //  // Pins
+#define BUTTON_PIN_COLOUR   2                                                       // Button to change colour of circle
+#define BUTTON_PIN_FILL     3                                                       // Button to fill the circle
+
+#define JOYSTICK_PIN_X      A1                                                      // Analog pin, x direction
+#define JOYSTICK_PIN_Y      A0                                                      // Analog pin, y direction
+#define JOYSTICK_PIN_SW     7                                                       // Digital pin, unused switch button
+
 #define LCD_PIN_SCK         13                                                      // 13 is the SPI pin on the Arduino Nano
 #define LCD_PIN_SDA         11                                                      // 11 is the MOSI pin on the Arduino Nano
 #define LCD_PIN_A0          10                                                      // Was selected to group pins numerically
 #define LCD_PIN_RST         9                                                       // Was selected to group pins numerically
 #define LCD_PIN_CS          8                                                       // Was selected to group pins numerically
 
-#define JOYSTICK_PIN_X      A1                                                      // Analog pin
-#define JOYSTICK_PIN_Y      A0                                                      // Analog pin
-#define JOYSTICK_PIN_SW     7                                                       // Digital pin
-
 #define POTENTIOMETER_PIN   A7                                                      // Analog pin
+
 
 // INITIALISING
 //  // Instances
@@ -44,95 +49,54 @@ int circleScreenLocY    = LCD_PXL_HEIGHT/2;                                     
 int circleRadius        = 10;                                                       // Default radius
 int circleColour        = ST77XX_CYAN;                                              // Colour of circle
 int circleMovementStep  = 2;                                                        // Circle movement speed
+bool circleFill         = false;                                                    // If the circle is filled
+
+//  // Buttons
+int buttonColour        = false;                                                    // Is the button pressed
+int buttonColourState   = false;                                                    // Used to hold the state
+
+int buttonFill          = false;                                                    // Is the button pressed
+int buttonFillState     = false;                                                    // Used to hold the state
 
 
 // PROTOTYPES
-void produceCircle(int locX, int locY, int radius, int colour);
-void cleanCircle(int locX, int locY, int radius);
+void produceCircle(int locX, int locY);                                             // Modularises the production of the circle
+void cleanCircle(int locX, int locY);                                               // Modularises the cleaning of the circle
+void produceMultipleCircles();                                                      // Handles the circle and fake-circles
+void cleanMultipleCircles();                                                        // Handles the circle and fake-circles
+void changeColour();                                                                // Handles the colour changing of the circle
+
 
 // SETUP
 void setup() {
+    // PINS
+    //  // Buttons
+    pinMode(BUTTON_PIN_COLOUR,  INPUT);
+    pinMode(BUTTON_PIN_FILL,    INPUT);
+
+    //  // Joystick
+    pinMode(JOYSTICK_PIN_X,     INPUT);
+    pinMode(JOYSTICK_PIN_Y,     INPUT);
+    pinMode(JOYSTICK_PIN_SW,    INPUT);
+
+    //  // Potentiometer
+    pinMode(POTENTIOMETER_PIN,  INPUT);
+    
+    // SCREEN
+    //  // Communication Links
     tft.initR(INITR_BLACKTAB);                                                      //  // Sets the background colour
     tft.setSPISpeed(40000000);                                                      //  // Sets the SPI speed (40 million)
     
+    //  // Screen Colours
     tft.fillScreen(SCREEN_COLOUR);                                                  //  // Fills the screen black
     tft.setTextColor(ST7735_WHITE, SCREEN_COLOUR);                                  //  // Makes the text white with black background
 }
 
+
 // MAIN LOOP
 void loop() {
     // CLEARING SCREEN
-    //  // Fake Border Circle, Single Corner                                        //  // REVIEW: This can be refactoured
-    if ((circleScreenLocY + circleRadius) > LCD_PXL_HEIGHT) {
-        cleanCircle(circleScreenLocX, 
-            circleScreenLocY - LCD_PXL_HEIGHT, 
-            circleRadius
-        );
-    }                                                                               //  // When it's beyond the height
-    if ((circleScreenLocY - circleRadius) < 0) {
-        cleanCircle(circleScreenLocX, 
-            circleScreenLocY + LCD_PXL_HEIGHT, 
-            circleRadius
-        );
-    }                                                                               //  // When it's below 0
-    
-    if ((circleScreenLocX + circleRadius) > LCD_PXL_WIDTH) {
-        cleanCircle(circleScreenLocX - LCD_PXL_WIDTH, 
-            circleScreenLocY, 
-            circleRadius
-        );
-    }                                                                               //  // When it's beyond left
-    if ((circleScreenLocX - circleRadius) < 0) {
-        cleanCircle(circleScreenLocX + LCD_PXL_WIDTH, 
-            circleScreenLocY, 
-            circleRadius
-        );
-    }                                                                               //  // When it's beyond right
-
-    //  // Fake Border Circle, Both Corners                                         //  // REVIEW: This can be refactoured
-    if (
-            (circleScreenLocX + circleRadius) >= LCD_PXL_WIDTH
-        &&  (circleScreenLocY + circleRadius) >= LCD_PXL_HEIGHT
-        ) {
-        cleanCircle(
-            circleScreenLocX - LCD_PXL_WIDTH,
-            circleScreenLocY - LCD_PXL_HEIGHT, 
-            circleRadius
-        );
-    }                                                                               //  // When top right, clean bottom left
-    if (
-            (circleScreenLocX - circleRadius) <= 0
-        &&  (circleScreenLocY - circleRadius) <= 0
-        ) {
-        cleanCircle(
-            circleScreenLocX + LCD_PXL_WIDTH,
-            circleScreenLocY + LCD_PXL_HEIGHT, 
-            circleRadius
-        );
-    }                                                                               //  // When bottom left, clean top right
-    if (
-            (circleScreenLocX - circleRadius) <= 0
-        &&  (circleScreenLocY + circleRadius) >= LCD_PXL_HEIGHT
-        ) {
-        cleanCircle(
-            circleScreenLocX + LCD_PXL_WIDTH,
-            circleScreenLocY - LCD_PXL_HEIGHT, 
-            circleRadius
-        );
-    }                                                                               //  // When top left , clean bottom right
-    if (
-            (circleScreenLocX + circleRadius) >= LCD_PXL_WIDTH
-        &&  (circleScreenLocY - circleRadius) <= 0
-        ) {
-        cleanCircle(
-            circleScreenLocX - LCD_PXL_WIDTH,
-            circleScreenLocY + LCD_PXL_HEIGHT, 
-            circleRadius
-        );
-    }                                                                               //  // When bottom right, clean top left
-    
-    //  // Main Screen Elements
-    cleanCircle(circleScreenLocX, circleScreenLocY, circleRadius);                  //  // Clears the current circle
+    cleanMultipleCircles();
     tft.fillRect(20,0, 20,30, SCREEN_COLOUR);                                       //  // This clears the text left by the debug
 
 
@@ -178,99 +142,10 @@ void loop() {
     if (circleScreenLocX < 0) {
         circleScreenLocX += LCD_PXL_WIDTH;
     }                                                                               //  // Resets width if too left
-
-
+    
     // PRODUCING CIRCLE
-    //  // Y Coordinate Handling                                                    //  // REVIEW: This can be refactoured
-    if ((circleScreenLocY + circleRadius) >= LCD_PXL_HEIGHT) {
-        produceCircle(
-            circleScreenLocX,
-            circleScreenLocY - LCD_PXL_HEIGHT, 
-            circleRadius, 
-            circleColour
-        );
-    }                                                                               //  // Makes a fake circle on bottom if exceed top
-    if ((circleScreenLocY - circleRadius) <= 0) {
-        produceCircle(
-            circleScreenLocX,
-            circleScreenLocY + LCD_PXL_HEIGHT, 
-            circleRadius, 
-            circleColour
-        );
-    }                                                                               //  // Makes a fake circle on top if exceed bottom
+    produceMultipleCircles();                                                       //  // Produces the circle
     
-    //  // X Coordinate Handling
-    if ((circleScreenLocX + circleRadius) >= LCD_PXL_WIDTH) {
-        produceCircle(
-            circleScreenLocX - LCD_PXL_WIDTH,
-            circleScreenLocY, 
-            circleRadius, 
-            circleColour
-        );
-    }                                                                               //  // Makes a fake circle on left if exceed right
-    if ((circleScreenLocX - circleRadius) <= 0) {
-        produceCircle(
-            circleScreenLocX + LCD_PXL_WIDTH,
-            circleScreenLocY, 
-            circleRadius, 
-            circleColour
-        );
-    }                                                                               //  // Makes a fake circle on right if exceed left
-    
-    //  // Both Corners
-    if (
-            (circleScreenLocX + circleRadius) >= LCD_PXL_WIDTH
-        &&  (circleScreenLocY + circleRadius) >= LCD_PXL_HEIGHT
-        ) {
-        produceCircle(
-            circleScreenLocX - LCD_PXL_WIDTH,
-            circleScreenLocY - LCD_PXL_HEIGHT, 
-            circleRadius, 
-            circleColour
-        );
-    }                                                                               //  // When top right, make bottom left
-    if (
-            (circleScreenLocX - circleRadius) <= 0
-        &&  (circleScreenLocY - circleRadius) <= 0
-        ) {
-        produceCircle(
-            circleScreenLocX + LCD_PXL_WIDTH,
-            circleScreenLocY + LCD_PXL_HEIGHT, 
-            circleRadius, 
-            circleColour
-        );
-    }                                                                               //  // When bottom left, make top right
-    if (
-            (circleScreenLocX - circleRadius) <= 0
-        &&  (circleScreenLocY + circleRadius) >= LCD_PXL_HEIGHT
-        ) {
-        produceCircle(
-            circleScreenLocX + LCD_PXL_WIDTH,
-            circleScreenLocY - LCD_PXL_HEIGHT, 
-            circleRadius, 
-            circleColour
-        );
-    }                                                                               //  // When top left, make bottom right
-    if (
-            (circleScreenLocX + circleRadius) >= LCD_PXL_WIDTH
-        &&  (circleScreenLocY - circleRadius) <= 0
-        ) {
-        produceCircle(
-            circleScreenLocX - LCD_PXL_WIDTH,
-            circleScreenLocY + LCD_PXL_HEIGHT, 
-            circleRadius, 
-            circleColour
-        );
-    }                                                                               //  // When bottom right, make top left
-
-    //  // Actual Circle
-    produceCircle(
-        circleScreenLocX,
-        circleScreenLocY, 
-        circleRadius, 
-        circleColour
-    );                                                                              //  // Produces circle
-
     // DEBUG TEXT
     tft.setCursor(0,0);
     tft.print("jx: ");
@@ -282,34 +157,180 @@ void loop() {
     tft.print("po: ");
     tft.println(potentiometerValue);
 
+    // BUTTON INPUTS
+    buttonColour    = digitalRead(BUTTON_PIN_COLOUR);                                   //  // Read the input of the button used for colour
+    buttonFill      = digitalRead(BUTTON_PIN_FILL);                                     //  // Read the input of the button used for fill
 
-    // DELAY BETWEEN SCREENS
-    // delay(10);                                                                      //  // Slows down code
+    if (buttonColour == true){                                                      //  // If button pressed
+        // FUNCTION
+        changeColour();                                                             //  // Change colour
 
-    
+        // DEBOUNCER
+        buttonColourState = true;                                                   //  // Hold state until the button is released
+    }
+    else {
+        buttonColourState = false;                                                  //  // Allow button to activate function again
+    }
 
+
+    if (buttonFill == true){                                                        //  // If button pressed
+        // FUNCTIONS
+        if (circleFill == false) {circleFill = true;}                               //  // Alternate from filled to not or vice versa
+        else {circleFill = false;}
+
+        // DEBOUNCER
+        buttonFillState = true;                                                     //  // Hold state until the button is released
+    }
+    else {
+        buttonFillState = false;                                                    //  // Allow button to activate function again
+    }
 
 }
 
 
 // FUNCTIONS
-void produceCircle(int locX, int locY, int radius, int colour) {
-    tft.drawCircle(
-        locX, 
-        locY, 
-        radius, 
-        colour
-    );
-}                                                                                   //  // Produces circle, makes easier to alter
+void produceCircle(int locX, int locY) {                                            // Produces circle, makes easier to alter
+    if (circleFill == true) {
+        tft.fillCircle(locX, locY, circleRadius, circleColour);
+    } 
+    else {
+        tft.drawCircle(locX, locY, circleRadius, circleColour);
+    }
+}
 
-void cleanCircle(int locX, int locY, int radius) {
-    tft.fillCircle(
-        locX, 
-        locY, 
-        radius+1, 
-        SCREEN_COLOUR
-    );
-}                                                                                   //  // Cleans circle, makes easier to alter
+void cleanCircle(int locX, int locY) {                                              // Produces circle, makes easier to alter
+    tft.fillCircle(locX, locY, circleRadius+1, SCREEN_COLOUR);
+}
+
+void produceMultipleCircles() {
+    // CONDITIONS
+    //  // Left Condition
+    if ((circleScreenLocX - circleRadius) <= 0) {
+        produceCircle(circleScreenLocX + LCD_PXL_WIDTH, circleScreenLocY);
+    }
+
+    //  // Right Condition
+    if ((circleScreenLocX + circleRadius) >= LCD_PXL_WIDTH) {
+        produceCircle(circleScreenLocX - LCD_PXL_WIDTH, circleScreenLocY);
+    }
+
+    //  // Top Condition
+    if ((circleScreenLocY + circleRadius) >= LCD_PXL_HEIGHT) {
+        produceCircle(circleScreenLocX, circleScreenLocY - LCD_PXL_HEIGHT);
+    }
+
+    //  // Bottom Condition
+    if ((circleScreenLocY - circleRadius) <= 0) {
+        produceCircle(circleScreenLocX, circleScreenLocY + LCD_PXL_HEIGHT);
+    }
+
+    //  // Top Left Condition
+    if (    (circleScreenLocX - circleRadius)   <= 0
+        &&  (circleScreenLocY + circleRadius)   >= LCD_PXL_HEIGHT) {
+            produceCircle(circleScreenLocX + LCD_PXL_WIDTH, 
+            circleScreenLocY + LCD_PXL_HEIGHT);
+    }
+
+    //  // Top Right Condition
+    if (    (circleScreenLocX + circleRadius)   >= LCD_PXL_WIDTH
+        &&  (circleScreenLocY + circleRadius)   >= LCD_PXL_HEIGHT) {
+            produceCircle(circleScreenLocX - LCD_PXL_WIDTH, 
+            circleScreenLocY - LCD_PXL_HEIGHT);
+    }
+
+    //  // Bottom Left Condition
+    if (    (circleScreenLocX - circleRadius)   <= 0
+        &&  (circleScreenLocY - circleRadius)   <= 0) {
+            produceCircle(circleScreenLocX - LCD_PXL_WIDTH, 
+            circleScreenLocY + LCD_PXL_HEIGHT);
+    }
+
+    // Bottom Right Condition
+    if (    (circleScreenLocX + circleRadius)   >= LCD_PXL_WIDTH
+        &&  (circleScreenLocY - circleRadius)   <= 0) {
+            produceCircle(circleScreenLocX - LCD_PXL_WIDTH, 
+            circleScreenLocY + LCD_PXL_HEIGHT);
+    }
+
+    //  // Actual Circle
+    produceCircle(circleScreenLocX, circleScreenLocY);
+}
+
+void cleanMultipleCircles() {
+    // CONDITIONS
+    //  // Left Condition
+    if ((circleScreenLocX - circleRadius) <= 0) {
+        cleanCircle(circleScreenLocX + LCD_PXL_WIDTH, circleScreenLocY);
+    }
+
+    //  // Right Condition
+    if ((circleScreenLocX + circleRadius) >= LCD_PXL_WIDTH) {
+        cleanCircle(circleScreenLocX - LCD_PXL_WIDTH, circleScreenLocY);
+    }
+
+    //  // Top Condition
+    if ((circleScreenLocY + circleRadius) >= LCD_PXL_HEIGHT) {
+        cleanCircle(circleScreenLocX, circleScreenLocY - LCD_PXL_HEIGHT);
+    }
+
+    //  // Bottom Condition
+    if ((circleScreenLocY - circleRadius) <= 0) {
+        cleanCircle(circleScreenLocX, circleScreenLocY + LCD_PXL_HEIGHT);
+    }
+
+    //  // Top Left Condition
+    if (    (circleScreenLocX - circleRadius)   <= 0
+        &&  (circleScreenLocY + circleRadius)   >= LCD_PXL_HEIGHT) {
+            cleanCircle(circleScreenLocX + LCD_PXL_WIDTH, 
+            circleScreenLocY + LCD_PXL_HEIGHT);
+    }
+
+    //  // Top Right Condition
+    if (    (circleScreenLocX + circleRadius)   >= LCD_PXL_WIDTH
+        &&  (circleScreenLocY + circleRadius)   >= LCD_PXL_HEIGHT) {
+            cleanCircle(circleScreenLocX - LCD_PXL_WIDTH, 
+            circleScreenLocY - LCD_PXL_HEIGHT);
+    }
+
+    //  // Bottom Left Condition
+    if (    (circleScreenLocX - circleRadius)   <= 0
+        &&  (circleScreenLocY - circleRadius)   <= 0) {
+            cleanCircle(circleScreenLocX - LCD_PXL_WIDTH, 
+            circleScreenLocY + LCD_PXL_HEIGHT);
+    }
+
+    // Bottom Right Condition
+    if (    (circleScreenLocX + circleRadius)   >= LCD_PXL_WIDTH
+        &&  (circleScreenLocY - circleRadius)   <= 0) {
+            cleanCircle(circleScreenLocX - LCD_PXL_WIDTH, 
+            circleScreenLocY + LCD_PXL_HEIGHT);
+    }
+
+    //  // Actual Circle
+    cleanCircle(circleScreenLocX, circleScreenLocY);
+}
+
+void changeColour() {
+    if (buttonColourState == false) {
+        // CONDITIONS
+        if (circleColour == ST7735_CYAN) {
+            circleColour = ST7735_MAGENTA;
+        }
+        else if (circleColour == ST7735_MAGENTA) {
+            circleColour = ST7735_YELLOW;
+        }
+        else if (circleColour == ST7735_YELLOW) {
+            circleColour = ST7735_GREEN;
+        }
+        else if (circleColour == ST7735_GREEN) {
+            circleColour = ST7735_WHITE;
+        }
+        else {
+            circleColour = ST7735_CYAN;
+        }
+    }
+}
+
 
 // NOTES
 /*
