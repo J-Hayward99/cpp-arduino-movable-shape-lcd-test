@@ -17,7 +17,7 @@
 #define SCREEN_COLOUR       ST7735_BLACK                                            // Background colour of screen
 
 //  // Joystick Values
-constexpr int       JS_THRESHOLD        = 0.01f * 1023;                                                  // Threshold value of joystick, used to avoid drift
+constexpr int       JS_THRESHOLD        = 0.015f * 1023;                                                  // Threshold value of joystick, used to avoid drift
 const int           JS_BITSHIFT_MAG     = 6;                                                       // Controls bitshift
 
 //  // Potentiometer Values
