@@ -17,18 +17,19 @@
 #define SCREEN_COLOUR       ST7735_BLACK                                            // Background colour of screen
 
 //  // Joystick Values
-#define JS_THRESHOLD        2                                                       // Threshold value of joystick, used to avoid drift
-#define JS_BITSHIFT_MAG     6                                                       // Controls bitshift
+constexpr int       JS_THRESHOLD        = 0.01f * 1023;                                                  // Threshold value of joystick, used to avoid drift
+const int           JS_BITSHIFT_MAG     = 6;                                                       // Controls bitshift
 
 //  // Potentiometer Values
-#define CIRCLE_RAD_SCALER   2                                                       // Scaler of how big the circle can be
-#define CIRCLE_STEP_SCALER  1
+const int           CIRCLE_RAD_SCALER   = 2;                                                       // Scaler of how big the circle can be
+const int           CIRCLE_STEP_SCALER  = 1;
+
 //  // LCD values
-#define LCD_PXL_HEIGHT      160                                                     // Height of the display in pixels
-#define LCD_PXL_WIDTH       128                                                     // Width of the display in pixels
+const int           LCD_PXL_HEIGHT      = 160;                                                     // Height of the display in pixels
+const int           LCD_PXL_WIDTH       = 128;                                                    // Width of the display in pixels
 
 //  // Button
-#define DEBOUNCE_MILLIS     50                                                      // Used to avoid bouncing
+const unsigned long DEBOUNCE_MILLIS     = 200;                                                      // Used to avoid bouncing
 
 //  // Pins
 #define BUTTON_PIN_COLOUR   2                                                       // Button to change colour of circle
@@ -47,30 +48,40 @@
 #define POTENTIOMETER_PIN   A7                                                      // Analog pin
 
 //  // Derived Settings
-const int halfRange         = (1024 >> JS_BITSHIFT_MAG) / 2;
+constexpr int   halfJoystickRange   = (1023 >> 1);
+constexpr int   halfRange           = (1023 >> JS_BITSHIFT_MAG) >> 1;
 
 // Debug
 const bool DEBUG_MODE       = false;
+const bool DEBUG_SCREEN     = false;
+
+const bool DEBUG_PRINT      = false;
+const bool DEBUG_JS         = false;
+const bool DEBUG_BUTTONS    = false;
+const bool DEBUG_KNOB       = false;
 
 // INITIALISING
 //  // Circle
 class Circle
 {
     public:
-        int locX            = LCD_PXL_WIDTH     / 2;                                // Initial X coordinate, middle of screen
-        int locY            = LCD_PXL_HEIGHT    / 2;                                // Initial Y coordinate, middle of screen
-        
-        int prevLocX        = 0;
-        int prevLocY        = 0;
-        
-        int radius          = 10;                                                   // Default radius
-        uint16_t colour     = ST7735_CYAN;                                          // Colour of circle
-        
-        bool bFilled        = false;                                                // If the circle is filled
+        // Current Values
+        int         locX        = LCD_PXL_WIDTH     / 2;                                // Initial X coordinate, middle of screen
+        int         locY        = LCD_PXL_HEIGHT    / 2;                                // Initial Y coordinate, middle of screen
+        int         radius      = 10;                                                   // Default radius
+        uint16_t    colour      = ST7735_CYAN;                                          // Colour of circle
+        bool        bFilled     = false;                                                // If the circle is filled
+
+        // Previous Values
+        int         prevLocX    = 0;
+        int         prevLocY    = 0;
+        int         prevRadius  = 0;
+        bool        prevBFilled = false;
 
         // Change Values
         void changeColour(bool shouldChange) 
         {                                                                           // Changes the colour through a iterative conditional list
+            // If False
             if (!shouldChange) return;
             // List starts on Cyan, will cycle through
             // Yes there is probably a better way to do this
@@ -91,14 +102,18 @@ class Circle
 
         void changeRadius(int value)
         {
-            radius = value * CIRCLE_RAD_SCALER;
+            prevRadius  = radius;
+            radius      = value * CIRCLE_RAD_SCALER;
         }
 
         void changeFilled(bool shouldFill)
         {
+            // If False
             if (!shouldFill) return;
-
-            (bFilled) ? (bFilled = true) : (bFilled = false);
+            
+            // Save Value
+            prevBFilled = bFilled;
+            bFilled     = !bFilled;
         }
 
         void moveCircle(int movementX, int movementY)
@@ -121,6 +136,12 @@ class Circle
             if (locX > LCD_PXL_WIDTH)   locX -= LCD_PXL_WIDTH;                      //  // Resets width if too right
             if (locX < 0)               locX += LCD_PXL_WIDTH;                      //  // Resets width if too left
         }
+
+        void updateFixAndRadius()
+        {
+            prevBFilled = bFilled;
+            prevRadius  = radius;
+        }
 };
 
 //  // Controls
@@ -135,24 +156,36 @@ class Button
             int readValue                   = digitalRead(pin);
             unsigned long lastPressDuration = (millis() - lastBounceTime);
             
-            if (lastPressDuration > DEBOUNCE_MILLIS)
+            // Debug
+            if (DEBUG_MODE && DEBUG_BUTTONS) reportValuesToSerial(
+                readValue, lastPressDuration);
+
+            // Debounce
+            if ((lastPressDuration > DEBOUNCE_MILLIS) && (readValue != state))
             {
-                (readValue) ? (state = true) : (state = false);
+                state           = readValue;
+                lastBounceTime  = millis();
+                return state;
             }
-            
-            lastBounceTime = millis();
 
-            if (DEBUG_MODE) reportValuesToSerial();
-
-            return readValue;
+            return false;
         }
 
         // For Serial Debug
-        void reportValuesToSerial()
+        void reportValuesToSerial(int readValue, 
+        unsigned long lastPressDuration)
         {
-            Serial.print("Button: ");
+            Serial.print("Button: [");
+            Serial.print(readValue);
+            Serial.print(", ");
             Serial.print(state);
-            Serial.print("\t");
+            Serial.print(", ");
+            Serial.print(lastPressDuration > DEBOUNCE_MILLIS);
+            Serial.print(", ");
+            Serial.print(lastPressDuration);
+            Serial.print(" (");
+            Serial.print(DEBOUNCE_MILLIS);
+            Serial.print(")]\t\t");
 
         };
 };
@@ -178,19 +211,40 @@ class Joystick
             valueY          = acquireAndConvertValues(JS_PIN_Y);
             switchPressed   = digitalRead(JS_PIN_SW);
 
-            if (DEBUG_MODE) reportValuesToSerial();
+            if (DEBUG_MODE && DEBUG_JS) reportValuesToSerial();
         };
 
         // For Serial Debug
         void reportValuesToSerial()
         {
-            Serial.print("X-axis: ");
+            Serial.print("X-axis: [");
+            Serial.print(analogRead(JS_PIN_X));
+            Serial.print(", ");
+            Serial.print(analogRead(JS_PIN_X)/1023.0f * 100);
+            Serial.print(", ");
             Serial.print(valueX);
+            Serial.print("]");
+            Serial.print(" (");
+            Serial.print(
+                abs(analogRead(JS_PIN_X) - halfJoystickRange) < JS_THRESHOLD
+            );
+            Serial.print(")");
 
-            Serial.print("\tY-axis: ");
+            Serial.print("\tY-axis: [");
+            Serial.print(analogRead(JS_PIN_Y));
+            Serial.print(", ");
+            Serial.print(analogRead(JS_PIN_Y)/1023.0f * 100);
+            Serial.print(", ");
             Serial.print(valueY);
+            Serial.print("]");
+            Serial.print(" (");
+            Serial.print(
+                abs(analogRead(JS_PIN_Y) - halfJoystickRange) < JS_THRESHOLD
+            );
+            Serial.print(")");
 
-            Serial.print("\tButton Pressed: ");
+
+            Serial.print("\tSW: ");
             Serial.print(switchPressed);
             Serial.print("\t");
         };
@@ -201,10 +255,13 @@ class Joystick
         {
             // Get Value
             int value = analogRead(pin);
-            int convertedValue = (value >> JS_BITSHIFT_MAG) - halfRange;           // unsigned int 1024 -> 16, then made signed for -8 to 8
 
             // Check if Value is in Deadzones
-            if (abs(convertedValue) < JS_THRESHOLD) convertedValue = 0;
+            if (abs(value - halfJoystickRange) < JS_THRESHOLD) return 0;
+            
+            // Convert Value
+            int convertedValue = (value >> JS_BITSHIFT_MAG) - halfRange;                        // unsigned int 1024 -> 16, then made signed for -8 to 8
+
             
             // Convert Value
             return convertedValue;
@@ -221,7 +278,7 @@ class Potentiometer
         {
             value = analogRead(POTENTIOMETER_PIN) / 100;
             
-            if (DEBUG_MODE) reportValuesToSerial();
+            if (DEBUG_MODE && DEBUG_KNOB) reportValuesToSerial();
         }
 
         // For Serial Debug
@@ -239,7 +296,6 @@ class Screen
 {
     public:
         uint16_t    colour      = ST7735_BLACK;
-        bool        showDebug   = false;
 
         void printScreen(Circle& circle, Joystick& joystick, 
             Potentiometer& potentiometer, Adafruit_ST7735& chip)
@@ -247,7 +303,7 @@ class Screen
             cleanMultipleCircle(circle, chip, joystick);
             printMultipleCircle(circle, chip);
 
-            if (showDebug)
+            if (DEBUG_MODE && DEBUG_SCREEN)
             {
                 // Clear Debug
                 chip.fillRect(20,0, 20,30, SCREEN_COLOUR);
@@ -272,9 +328,26 @@ class Screen
         {
             bool hitLeft    = ((circle.locX - circle.radius) <= 0);
             bool hitRight   = ((circle.locX + circle.radius) >= LCD_PXL_WIDTH);
-            bool hitTop     = ((circle.locY + circle.radius) >= LCD_PXL_HEIGHT);
-            bool hitBottom  = ((circle.locY - circle.radius) <= 0);
-            
+            bool hitBottom  = ((circle.locY + circle.radius) >= LCD_PXL_HEIGHT);
+            bool hitTop     = ((circle.locY - circle.radius) <= 0);
+
+            if (DEBUG_MODE && DEBUG_PRINT)
+            {
+                Serial.print("\tPRINT {");
+                Serial.print("L=");
+                Serial.print(hitLeft);
+                Serial.print(" R=");
+                Serial.print(hitRight);
+                Serial.print(" T=");
+                Serial.print(hitTop);
+                Serial.print(" B=");
+                Serial.print(hitBottom);
+                Serial.print(" X=");
+                Serial.print(circle.locX);
+                Serial.print(" Y=");
+                Serial.print(circle.locY);
+                Serial.print("}");
+            }
             // Main Circle
             printCircle(circle, chip);
 
@@ -283,32 +356,32 @@ class Screen
             if (hitLeft) printCircle(
                 circle,
                 chip,
-                circle.locX + LCD_PXL_WIDTH, 
-                circle.locY
+                LCD_PXL_WIDTH, 
+                0
             );
 
             //  // Right Condition
             if (hitRight) printCircle(
                 circle,
                 chip,
-                circle.locX - LCD_PXL_WIDTH,
-                circle.locY
+                -LCD_PXL_WIDTH,
+                0
             );
 
             //  // Top Condition
             if (hitTop) printCircle(
                 circle,
                 chip,
-                circle.locX, 
-                circle.locY - LCD_PXL_HEIGHT
+                0, 
+                LCD_PXL_HEIGHT
             );
 
             //  // Bottom Condition
             if (hitBottom) printCircle(
                 circle,
                 chip,
-                circle.locX, 
-                circle.locY + LCD_PXL_HEIGHT
+                0, 
+                -LCD_PXL_HEIGHT
             );
 
             // OPPOSITE CORNERS
@@ -316,48 +389,69 @@ class Screen
             if (hitTop && hitLeft) printCircle(
                 circle,
                 chip,
-                circle.locX + LCD_PXL_WIDTH, 
-                circle.locY + LCD_PXL_HEIGHT
+                LCD_PXL_WIDTH, 
+                LCD_PXL_HEIGHT
             );
             
             //  // Top Right Condition
             if (hitTop && hitRight) printCircle(
                 circle,
                 chip,
-                circle.locX - LCD_PXL_WIDTH, 
-                circle.locY - LCD_PXL_HEIGHT
+                -LCD_PXL_WIDTH, 
+                LCD_PXL_HEIGHT
             );
 
             //  // Bottom Left Condition
             if (hitBottom && hitLeft) printCircle(
                 circle,
                 chip,
-                circle.locX - LCD_PXL_WIDTH, 
-                circle.locY + LCD_PXL_HEIGHT
+                LCD_PXL_WIDTH, 
+                -LCD_PXL_HEIGHT
             );
 
             // Bottom Right Condition
             if (hitBottom && hitRight) printCircle(
                 circle,
                 chip,
-                circle.locX - LCD_PXL_WIDTH, 
-                circle.locY + LCD_PXL_HEIGHT
+                -LCD_PXL_WIDTH, 
+                -LCD_PXL_HEIGHT
             );
         }
 
-        void cleanMultipleCircle(const Circle& circle, Adafruit_ST7735& chip,
+        void cleanMultipleCircle(Circle& circle, Adafruit_ST7735& chip,
             Joystick& joystick)
         {
-            bool hitLeft    = ((circle.locX - circle.radius) <= 0);
-            bool hitRight   = ((circle.locX + circle.radius) >= LCD_PXL_WIDTH);
-            bool hitTop     = ((circle.locY + circle.radius) >= LCD_PXL_HEIGHT);
-            bool hitBottom  = ((circle.locY - circle.radius) <= 0);
-
             int cleanLocX   = circle.prevLocX;
             int cleanLocY   = circle.prevLocY;
+            int cleanRadius = circle.prevRadius;
+
+            bool hitLeft    = ((cleanLocX - cleanRadius)  <= 0);
+            bool hitRight   = ((cleanLocX + cleanRadius)  >= LCD_PXL_WIDTH);
+            bool hitBottom  = ((cleanLocY + cleanRadius)  >= LCD_PXL_HEIGHT);
+            bool hitTop     = ((cleanLocY - cleanRadius)  <= 0);
+
+
+            if (DEBUG_MODE && DEBUG_PRINT)
+            {
+                Serial.print("CLEAN {");
+                Serial.print("L=");
+                Serial.print(hitLeft);
+                Serial.print(" R=");
+                Serial.print(hitRight);
+                Serial.print(" T=");
+                Serial.print(hitTop);
+                Serial.print(" B=");
+                Serial.print(hitBottom);
+                Serial.print(" X=");
+                Serial.print(cleanLocX);
+                Serial.print(" Y=");
+                Serial.print(cleanLocY);
+                Serial.print("}");
+            }
             
             // Main Circle
-            cleanCircle(circle, chip, cleanLocX, cleanLocY);
+            // FIXME On border, clean doesn't work with rad or fill change
+            cleanCircle(circle, chip, cleanLocX, cleanLocY, cleanRadius);
 
             // OPPOSITE SIDES
             //  // Left Condition
@@ -365,7 +459,8 @@ class Screen
                 circle,
                 chip,
                 cleanLocX + LCD_PXL_WIDTH, 
-                cleanLocY
+                cleanLocY,
+                cleanRadius
             );
 
             //  // Right Condition
@@ -373,7 +468,8 @@ class Screen
                 circle,
                 chip,
                 cleanLocX - LCD_PXL_WIDTH,
-                cleanLocY
+                cleanLocY,
+                cleanRadius
             );
 
             //  // Top Condition
@@ -381,7 +477,8 @@ class Screen
                 circle,
                 chip,
                 cleanLocX, 
-                cleanLocY - LCD_PXL_HEIGHT
+                cleanLocY + LCD_PXL_HEIGHT,
+                cleanRadius
             );
 
             //  // Bottom Condition
@@ -389,7 +486,8 @@ class Screen
                 circle,
                 chip,
                 cleanLocX, 
-                cleanLocY + LCD_PXL_HEIGHT
+                cleanLocY - LCD_PXL_HEIGHT,
+                cleanRadius
             );
 
             // OPPOSITE CORNERS
@@ -398,7 +496,8 @@ class Screen
                 circle,
                 chip,
                 cleanLocX + LCD_PXL_WIDTH, 
-                cleanLocY + LCD_PXL_HEIGHT
+                cleanLocY + LCD_PXL_HEIGHT,
+                cleanRadius
             );
             
             //  // Top Right Condition
@@ -406,15 +505,17 @@ class Screen
                 circle,
                 chip,
                 cleanLocX - LCD_PXL_WIDTH, 
-                cleanLocY - LCD_PXL_HEIGHT
+                cleanLocY + LCD_PXL_HEIGHT,
+                cleanRadius
             );
 
             //  // Bottom Left Condition
             if (hitBottom && hitLeft) cleanCircle(
                 circle,
                 chip,
-                cleanLocX - LCD_PXL_WIDTH, 
-                cleanLocY + LCD_PXL_HEIGHT
+                cleanLocX + LCD_PXL_WIDTH, 
+                cleanLocY - LCD_PXL_HEIGHT,
+                cleanRadius
             );
 
             // Bottom Right Condition
@@ -422,7 +523,8 @@ class Screen
                 circle,
                 chip,
                 cleanLocX - LCD_PXL_WIDTH, 
-                cleanLocY + LCD_PXL_HEIGHT
+                cleanLocY - LCD_PXL_HEIGHT,
+                cleanRadius
             );
         }
 
@@ -444,21 +546,35 @@ class Screen
             );
         }
         
-        void cleanCircle(const Circle& circle, Adafruit_ST7735& chip,
-            int moveX=0, int moveY=0)
+        void cleanCircle(Circle& circle, Adafruit_ST7735& chip,
+            int locX, int locY, int radius)
         {
-            if (circle.bFilled) chip.fillCircle(
-                moveX, 
-                moveY, 
-                circle.radius, 
+            // Avoids Cleaning Circles just to Place Them Again
+            bool sameLoc    = (
+                    (circle.prevLocX == circle.locX) 
+                &&  (circle.prevLocY == circle.locY)
+            );
+            bool sameRadius = (circle.prevRadius == circle.radius);
+            bool sameFill   = (circle.prevBFilled == circle.bFilled);
+            
+            if (sameLoc && sameRadius && sameFill) return;
+
+            // Clean Circle
+            if (circle.prevBFilled) chip.fillCircle(
+                locX, 
+                locY, 
+                radius, 
                 SCREEN_COLOUR
             ); 
             else chip.drawCircle(
-                moveX, 
-                moveY, 
-                circle.radius, 
+                locX, 
+                locY, 
+                radius, 
                 SCREEN_COLOUR
             );
+
+            // Turn Off Filled and Radius Fix
+            circle.updateFixAndRadius();
         }    
 };
 
@@ -504,7 +620,6 @@ void setup()
     {
         Serial.begin(9600);
         Serial.println("Hello World!");
-        screen.showDebug = true;
     }
 }
 
