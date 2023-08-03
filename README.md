@@ -82,7 +82,7 @@ exercise my coding skills with an Arduino again.
 
 ## 4 Built With <a name="4"></a>
 
-This code was built in VS Code with the Arduino extension
+This code was built in VS Code with the PlatformIO extension
 
 ## 5 Notes <a name="5"></a>
 
