@@ -17,12 +17,13 @@
 #define SCREEN_COLOUR       ST7735_BLACK                                            // Background colour of screen
 
 //  // Joystick Values
-constexpr int       JS_THRESHOLD        = 0.015f * 1023;                                                  // Threshold value of joystick, used to avoid drift
+constexpr int       JS_THRESHOLD        = 0.015F * 1023;                                                  // Threshold value of joystick, used to avoid drift
 const int           JS_BITSHIFT_MAG     = 6;                                                       // Controls bitshift
 
 //  // Potentiometer Values
-const int           CIRCLE_RAD_SCALER   = 2;                                                       // Scaler of how big the circle can be
-const int           CIRCLE_STEP_SCALER  = 1;
+const int           CIRCLE_RAD_SCALER   = 1;                                                       // Scaler of how big the circle can be
+const int           CIRCLE_VEL_SCALER   = 10;
+const int           CIRCLE_STEP_SCALER  = 5;
 
 //  // LCD values
 const int           LCD_PXL_HEIGHT      = 160;                                                     // Height of the display in pixels
@@ -30,6 +31,15 @@ const int           LCD_PXL_WIDTH       = 128;                                  
 
 //  // Button
 const unsigned long DEBOUNCE_MILLIS     = 200;                                                      // Used to avoid bouncing
+
+//  // Screen
+const unsigned long FRAMES_PER_SECOND   = 60;
+
+//  // Circle Physics
+constexpr float     GRAVITY             = 9.81F;                                    // g, had to make it constexpr due to C++ shenanigans
+const int           STEP_CAP            = 8;
+constexpr float     FRICTION_COEFF      = 0.9F;
+constexpr float     DENSITY             = 0.0001F;
 
 //  // Pins
 #define BUTTON_PIN_COLOUR   2                                                       // Button to change colour of circle
@@ -47,13 +57,24 @@ const unsigned long DEBOUNCE_MILLIS     = 200;                                  
 
 #define POTENTIOMETER_PIN   A7                                                      // Analog pin
 
+//  // COORDS
+#define X                   0
+#define Y                   1
+
 //  // Derived Settings
-constexpr int   halfJoystickRange   = (1023 >> 1);
-constexpr int   halfRange           = (1023 >> JS_BITSHIFT_MAG) >> 1;
+constexpr int           HALF_JOYSTICK_RANGE = (1023 >> 1);
+constexpr int           HALF_RANGE          = (1023 >> JS_BITSHIFT_MAG) >> 1;
+
+constexpr unsigned long TIME_DELTA_MILLIS   = 1000 / FRAMES_PER_SECOND;
+constexpr float         ACUTAL_TIME_DELTA   = (
+    static_cast<float>(TIME_DELTA_MILLIS) / 1000
+);
 
 // Debug
 const bool DEBUG_MODE       = false;
 const bool DEBUG_SCREEN     = false;
+const bool DEBUG_TIME       = false;
+const bool DEBUG_MOVE       = true;
 
 const bool DEBUG_PRINT      = false;
 const bool DEBUG_JS         = false;
@@ -66,15 +87,21 @@ class Circle
 {
     public:
         // Current Values
-        int         locX        = LCD_PXL_WIDTH     / 2;                                // Initial X coordinate, middle of screen
-        int         locY        = LCD_PXL_HEIGHT    / 2;                                // Initial Y coordinate, middle of screen
+        int         locs[2]     = {LCD_PXL_WIDTH / 2, LCD_PXL_HEIGHT / 2};
         int         radius      = 10;                                                   // Default radius
         uint16_t    colour      = ST7735_CYAN;                                          // Colour of circle
         bool        bFilled     = false;                                                // If the circle is filled
 
+        float       mass        = 10;
+        
+        float       inertia[2] = {0, 0};
+        float       friction    = FRICTION_COEFF * (mass * GRAVITY);
+
         // Previous Values
-        int         prevLocX    = 0;
-        int         prevLocY    = 0;
+        int         prevLocs[2] = {0, 0};
+        float       prevVels[2] = {0, 0};
+
+        
         int         prevRadius  = 0;
         bool        prevBFilled = false;
 
@@ -104,6 +131,9 @@ class Circle
         {
             prevRadius  = radius;
             radius      = value * CIRCLE_RAD_SCALER;
+            
+            // Affects Physics
+            updatePhysics();
         }
 
         void changeFilled(bool shouldFill)
@@ -114,27 +144,190 @@ class Circle
             // Save Value
             prevBFilled = bFilled;
             bFilled     = !bFilled;
+            
+            // Affects Physics
+            updatePhysics();
         }
 
         void moveCircle(int movementX, int movementY)
         {
-            prevLocX                = locX;
-            prevLocY                = locY;
+            /*
+                This section works using forces (F = MA)
+                - M=1
+                - Therefore F=A
+                - F = sum{Friction, "JS_push"}
+            
+            */
 
-            // Get Movement Steps
-            int nextStepX           =   movementX * CIRCLE_STEP_SCALER;             //  // Next step for X
-            int nextStepY           = - movementY * CIRCLE_STEP_SCALER;             //  // Next step for Y
+            // SAVE VALUES
+            int steps[2]                = {0, 0};
+            int forces[2]               = {0, 0};
+            
+            float netForces[2]          = {0, 0};
+            float vels[2]               = {0, 0};
+            float adjustVels[2]         = {0, 0};
+            float accelerations[2]      = {0, 0};
 
-            // Apply Steps
-            locX += nextStepX;
-            locY += nextStepY;
+            
+            // FORCES LOGIC
+            //  // Get Velocities
+            int moves[2] = {movementX, movementY};
 
-            // Check Limits
-            if (locY > LCD_PXL_HEIGHT)  locY -= LCD_PXL_HEIGHT;                     //  // Resets height if over screen
-            if (locY < 0)               locY += LCD_PXL_HEIGHT;                     //  // Resets height if under screen
+            for (int dir = 0; dir < 2; dir++)
+            {
+                // SCALER
+                forces[dir] = moves[dir] * CIRCLE_VEL_SCALER;
+                
+                // FORCES (Force = ma = sum{forces}), Axis: Right, Down
+                //  // Hold Sign for Friction
+                int sign        = (forces[dir] >= 0) ? (1) : (-1);                
+                netForces[dir]  = sign * (abs(forces[dir]) - abs(friction));                                       //  // Sign ensures friction is always against force
 
-            if (locX > LCD_PXL_WIDTH)   locX -= LCD_PXL_WIDTH;                      //  // Resets width if too right
-            if (locX < 0)               locX += LCD_PXL_WIDTH;                      //  // Resets width if too left
+
+                // VELOCITY
+                //  // Acceleration (a = f/m)
+                accelerations[dir]  = netForces[dir] / mass;
+
+                //  // v = u + (a * t)
+                adjustVels[dir]     = accelerations[dir] * ACUTAL_TIME_DELTA;
+                
+                //  // Checks
+                bool lessThanFriction   = (abs(netForces[dir]) <= friction);
+                bool differentDir       = (
+                    (abs(prevVels[dir]) - abs(adjustVels[dir])) <= 0
+                );
+
+                if (lessThanFriction && differentDir)
+                {
+                    vels[dir] = 0;
+                }  
+                else if (lessThanFriction)
+                {
+                    int adSign = (prevVels[dir] >= 0.0f) ? (1) : (-1);
+                    adjustVels[dir] *= adSign;
+                }
+                
+                //  // Get Velocity
+                vels[dir]           = prevVels[dir] + adjustVels[dir];
+                
+                if (lessThanFriction && (prevVels[dir] == 0)) vels[dir] = 0;
+
+                //  // Save Last Values
+                prevVels[dir]  = vels[dir];
+
+                // STEPS
+                //  // s = (v * t) -a * (0.5 * t^2)
+
+                steps[dir] = vels[dir] * ACUTAL_TIME_DELTA * CIRCLE_STEP_SCALER;
+
+                //  // Caps
+                if (steps[dir] >  STEP_CAP) steps[dir] = HALF_RANGE;
+                if (steps[dir] < -STEP_CAP) steps[dir] = -HALF_RANGE;
+
+                //  // Apply Steps
+                if (dir == Y) steps[dir] = -steps[dir];                             //  // This fixes the screen
+                
+                prevLocs[dir]    = locs[dir];
+                locs[dir]       += steps[dir];
+            }
+
+            //  // Check Limits
+            if (locs[0] > LCD_PXL_WIDTH)    locs[0] -= LCD_PXL_WIDTH;                      //  // Resets width if too right
+            if (locs[0] < 0)                locs[0] += LCD_PXL_WIDTH;                      //  // Resets width if too left
+            
+            if (locs[1] > LCD_PXL_HEIGHT)   locs[1] -= LCD_PXL_HEIGHT;                     //  // Resets height if over screen
+            if (locs[1] < 0)                locs[1] += LCD_PXL_HEIGHT;                     //  // Resets height if under screen
+
+            // DEBUG
+            if (DEBUG_MODE && DEBUG_MOVE)
+            {
+                if (false)
+                {
+                Serial.print("Loc: [");
+                Serial.print(prevLocs[0]);
+                Serial.print(", ");
+                Serial.print(prevLocs[1]);
+                Serial.print("]");
+                }
+                if (false)
+                {
+                Serial.print("\tstep: [");
+                Serial.print(steps[0]);
+                Serial.print(", ");
+                Serial.print(steps[1]);
+                Serial.print("]");
+                }
+                if (false)
+                {
+                Serial.print("\tmove: [");
+                Serial.print(moves[0]);
+                Serial.print(", ");
+                Serial.print(moves[1]);
+                Serial.print("]");
+                }
+                if (true)
+                {
+                Serial.print("velocity: {");
+                    Serial.print("current: [");
+                    Serial.print(vels[0]);
+                    Serial.print(", ");
+                    Serial.print(vels[1]);
+                    Serial.print("]");
+
+                    Serial.print("\tprev: [");
+                    Serial.print(prevVels[0]);
+                    Serial.print(", ");
+                    Serial.print(prevVels[1]);
+                    Serial.print("]");
+                    
+                    Serial.print("\tadjustment: [");
+                    Serial.print(adjustVels[0]);
+                    Serial.print(", ");
+                    Serial.print(adjustVels[1]);
+                    Serial.print("]");
+                Serial.print("}");
+                }
+                if (true)
+                {
+                Serial.print("\tmass&friction: [");
+                Serial.print(mass);
+                Serial.print(", ");
+                Serial.print(friction);
+                Serial.print("]");
+                }
+                if (true)
+                {
+                Serial.print("\t\t\tforces: {");
+                    Serial.print("net: [");
+                    Serial.print(netForces[0]);
+                    Serial.print(", ");
+                    Serial.print(netForces[1]);
+                    Serial.print("]");
+
+                    Serial.print("\tforce_joystick: [");
+                    Serial.print(forces[0]);
+                    Serial.print(", ");
+                    Serial.print(forces[1]);
+                    Serial.print("]");
+                Serial.print("}");
+                }
+                if (false)
+                {
+                Serial.print("\t\t\tothers: {");
+                    Serial.print("accelerations: [");
+                    Serial.print(accelerations[0]);
+                    Serial.print(", ");
+                    Serial.print(accelerations[1]);
+                    Serial.print("]");
+
+                    Serial.print("\tprev_vels: [");
+                    Serial.print(prevVels[0]);
+                    Serial.print(", ");
+                    Serial.print(prevVels[1]);
+                    Serial.print("]");
+                Serial.print("}");
+                }
+            }
         }
 
         void updateFixAndRadius()
@@ -142,6 +335,21 @@ class Circle
             prevBFilled = bFilled;
             prevRadius  = radius;
         }
+    private:
+        void updatePhysics()
+        {
+            // Mass
+            mass        = (
+                (bFilled) ?  (PI*(radius*radius)) : (2*PI*radius)
+            ) * DENSITY;
+
+            // Zero Check
+            if (mass < 1) mass = 1.0f;
+
+            // Friction
+            friction    = FRICTION_COEFF * (mass * GRAVITY);
+        }
+
 };
 
 //  // Controls
@@ -226,7 +434,7 @@ class Joystick
             Serial.print("]");
             Serial.print(" (");
             Serial.print(
-                abs(analogRead(JS_PIN_X) - halfJoystickRange) < JS_THRESHOLD
+                abs(analogRead(JS_PIN_X) - HALF_JOYSTICK_RANGE) < JS_THRESHOLD
             );
             Serial.print(")");
 
@@ -239,7 +447,7 @@ class Joystick
             Serial.print("]");
             Serial.print(" (");
             Serial.print(
-                abs(analogRead(JS_PIN_Y) - halfJoystickRange) < JS_THRESHOLD
+                abs(analogRead(JS_PIN_Y) - HALF_JOYSTICK_RANGE) < JS_THRESHOLD
             );
             Serial.print(")");
 
@@ -257,10 +465,10 @@ class Joystick
             int value = analogRead(pin);
 
             // Check if Value is in Deadzones
-            if (abs(value - halfJoystickRange) < JS_THRESHOLD) return 0;
+            if (abs(value - HALF_JOYSTICK_RANGE) < JS_THRESHOLD) return 0;
             
             // Convert Value
-            int convertedValue = (value >> JS_BITSHIFT_MAG) - halfRange;                        // unsigned int 1024 -> 16, then made signed for -8 to 8
+            int convertedValue = (value >> JS_BITSHIFT_MAG) - HALF_RANGE;                        // unsigned int 1024 -> 16, then made signed for -8 to 8
 
             
             // Convert Value
@@ -295,7 +503,9 @@ class Potentiometer
 class Screen
 {
     public:
-        uint16_t    colour      = ST7735_BLACK;
+        uint16_t        colour      = ST7735_BLACK;
+        unsigned long   timeDelta   = 0;
+        unsigned long   lastTime    = 0;
 
         void printScreen(Circle& circle, Joystick& joystick, 
             Potentiometer& potentiometer, Adafruit_ST7735& chip)
@@ -321,15 +531,35 @@ class Screen
             }
 
         }
-    
+
+        bool updateTimeDelta()
+        {
+            int timeCurrent         = millis();
+            timeDelta               = timeCurrent - lastTime;
+            
+            bool pastTimeThreshold  = (timeDelta > TIME_DELTA_MILLIS);
+
+            if (pastTimeThreshold)
+            {
+                lastTime            = timeCurrent;
+                return true;
+            }
+            
+            else return false;
+        }
+
     private:
         // Only used ones
-        void printMultipleCircle(const Circle& circle, Adafruit_ST7735& chip)
+        void printMultipleCircle(Circle& circle, Adafruit_ST7735& chip)
         {
-            bool hitLeft    = ((circle.locX - circle.radius) <= 0);
-            bool hitRight   = ((circle.locX + circle.radius) >= LCD_PXL_WIDTH);
-            bool hitBottom  = ((circle.locY + circle.radius) >= LCD_PXL_HEIGHT);
-            bool hitTop     = ((circle.locY - circle.radius) <= 0);
+            int printLocX   = circle.locs[0];
+            int printLocY   = circle.locs[1];
+            int printRadius = circle.radius;
+
+            bool hitLeft    = (printLocX - printRadius) <= 0;
+            bool hitRight   = (printLocX + printRadius) >= LCD_PXL_WIDTH;
+            bool hitBottom  = (printLocY + printRadius) >= LCD_PXL_HEIGHT;
+            bool hitTop     = (printLocY - printRadius) <= 0;
 
             if (DEBUG_MODE && DEBUG_PRINT)
             {
@@ -343,9 +573,9 @@ class Screen
                 Serial.print(" B=");
                 Serial.print(hitBottom);
                 Serial.print(" X=");
-                Serial.print(circle.locX);
+                Serial.print(printLocX);
                 Serial.print(" Y=");
-                Serial.print(circle.locY);
+                Serial.print(printLocY);
                 Serial.print("}");
             }
             // Main Circle
@@ -421,10 +651,10 @@ class Screen
         void cleanMultipleCircle(Circle& circle, Adafruit_ST7735& chip,
             Joystick& joystick)
         {
-            int cleanLocX   = circle.prevLocX;
-            int cleanLocY   = circle.prevLocY;
+            int cleanLocX   = circle.prevLocs[0];
+            int cleanLocY   = circle.prevLocs[1];
             int cleanRadius = circle.prevRadius;
-
+            
             bool hitLeft    = ((cleanLocX - cleanRadius)  <= 0);
             bool hitRight   = ((cleanLocX + cleanRadius)  >= LCD_PXL_WIDTH);
             bool hitBottom  = ((cleanLocY + cleanRadius)  >= LCD_PXL_HEIGHT);
@@ -450,7 +680,6 @@ class Screen
             }
             
             // Main Circle
-            // FIXME On border, clean doesn't work with rad or fill change
             cleanCircle(circle, chip, cleanLocX, cleanLocY, cleanRadius);
 
             // OPPOSITE SIDES
@@ -526,21 +755,23 @@ class Screen
                 cleanLocY - LCD_PXL_HEIGHT,
                 cleanRadius
             );
+
+            circle.updateFixAndRadius();
         }
 
         // Individual Circles
-        void printCircle(const Circle& circle, Adafruit_ST7735& chip,
+        void printCircle(Circle& circle, Adafruit_ST7735& chip,
             int moveX=0, int moveY=0)
         {
             if (circle.bFilled) chip.fillCircle(
-                (circle.locX + moveX), 
-                (circle.locY + moveY), 
+                (circle.locs[0] + moveX), 
+                (circle.locs[1] + moveY), 
                 circle.radius, 
                 circle.colour
             ); 
             else chip.drawCircle(
-                (circle.locX + moveX), 
-                (circle.locY + moveY), 
+                (circle.locs[0] + moveX), 
+                (circle.locs[1] + moveY), 
                 circle.radius, 
                 circle.colour
             );
@@ -551,8 +782,8 @@ class Screen
         {
             // Avoids Cleaning Circles just to Place Them Again
             bool sameLoc    = (
-                    (circle.prevLocX == circle.locX) 
-                &&  (circle.prevLocY == circle.locY)
+                    (circle.prevLocs[0] == circle.locs[0]) 
+                &&  (circle.prevLocs[1] == circle.locs[1])
             );
             bool sameRadius = (circle.prevRadius == circle.radius);
             bool sameFill   = (circle.prevBFilled == circle.bFilled);
@@ -560,7 +791,7 @@ class Screen
             if (sameLoc && sameRadius && sameFill) return;
 
             // Clean Circle
-            if (circle.prevBFilled) chip.fillCircle(
+            if (!sameFill || circle.bFilled) chip.fillCircle(
                 locX, 
                 locY, 
                 radius, 
@@ -571,10 +802,7 @@ class Screen
                 locY, 
                 radius, 
                 SCREEN_COLOUR
-            );
-
-            // Turn Off Filled and Radius Fix
-            circle.updateFixAndRadius();
+            );    
         }    
 };
 
@@ -587,6 +815,8 @@ Button          fillColour;
 Potentiometer   potentiometer;
 Screen          screen;
 Adafruit_ST7735 chip = Adafruit_ST7735(LCD_PIN_CS, LCD_PIN_A0, LCD_PIN_RST);
+
+
 
 // SETUP
 void setup() 
@@ -625,22 +855,35 @@ void setup()
 
 void loop() 
 {
-    // POTENTIOMETER INPUTS
-    potentiometer.updateValue();
-    circle.changeRadius(potentiometer.value);
+    if (DEBUG_MODE && DEBUG_TIME)
+    {
+        Serial.print("time_d: ");
+        Serial.print(screen.timeDelta);
+        Serial.print("\ttime_c: ");
+        Serial.println(screen.timeDelta);
+    }
 
-    // JOYSTICK INPUTS
-    joystick.updateValues();
-    circle.moveCircle(joystick.valueX, joystick.valueY);
+    bool allowLoop = screen.updateTimeDelta();
+    if (allowLoop)
+    {
+        // POTENTIOMETER INPUTS
+        potentiometer.updateValue();
+        circle.changeRadius(potentiometer.value);
 
-    // BUTTON INPUTS
-    circle.changeColour(nextColour.updateAndReturnValue(BUTTON_PIN_COLOUR));
-    circle.changeFilled(fillColour.updateAndReturnValue(BUTTON_PIN_FILL));
+        // JOYSTICK INPUTS
+        joystick.updateValues();
+        circle.moveCircle(joystick.valueX, joystick.valueY);
 
-    // // CLEARING AND PRINTING SCREEN
-    screen.printScreen(circle, joystick, potentiometer, chip);
-    
-    if (DEBUG_MODE) Serial.println();
+        // BUTTON INPUTS
+        circle.changeColour(nextColour.updateAndReturnValue(BUTTON_PIN_COLOUR));
+        circle.changeFilled(fillColour.updateAndReturnValue(BUTTON_PIN_FILL));
+
+        // // CLEARING AND PRINTING SCREEN
+        screen.printScreen(circle, joystick, potentiometer, chip);
+        
+        // DEBUG
+        if (DEBUG_MODE) Serial.println();
+    }
 }
 
 // NOTES
