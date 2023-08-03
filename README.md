@@ -1,5 +1,11 @@
 # Arduino: Movable Shape LCD Test
 
+# Example Video
+
+Excuse the wire management, not exactly Ben Eater's wiring
+
+https://www.youtube.com/watch?v=ltrEcaeusLk
+
 # Content
 
 - [1 Purpose](#1)
